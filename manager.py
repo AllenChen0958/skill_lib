@@ -156,8 +156,8 @@ class AtariPolicyManager(object):
                 yaml.dump(kwargs, outfile, default_flow_style=False)
 
         
-        if name not in self._save_model_name:
-            self._save_model_name.append(name)
+        if save_name not in self._save_model_name:
+            self._save_model_name.append(save_name)
 
         if len(self._save_model_name) > self.preserve_model:
             remove_name = self._save_model_name.popleft()
@@ -171,7 +171,8 @@ class AtariPolicyManager(object):
             # assert all(key in info for key in ["ave_reward", "ave_score"])
             with open(filename, 'a') as f:
                 # if "ave_total_scroe" in info:
-                print("{s:{c}^{n}}".format(s=(" Episode: " + str(self._serial_num) + " "), c='*', n=27), file=f)
+                # print("{s:{c}^{n}}".format(s=(" Episode: " + str(self._serial_num) + " "), c='*', n=27), file=f)
+                print("Episode: {}".format(str(self._serial_num)), file=f)
                 keys = info.keys()
                 # keys.sort()
                 for key in keys:

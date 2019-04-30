@@ -194,6 +194,7 @@ class ActionSkillSpace(gym.spaces.Discrete):
         self.discrete_space = discrete_space
         self.primitive_action_n = discrete_space.n
         self.skill_n = len(skills)
+        assert isinstance(skills, list)
         self.skills = skills
         assert default_sample_type in ["all", "primitive", "skill"]
         self.default_sample_type = default_sample_type
@@ -219,7 +220,7 @@ class ActionSkillSpace(gym.spaces.Discrete):
     
     def __getitem__(self, idx):
         if idx<self.primitive_action_n:
-            return [idx]
+            return idx
         elif self.primitive_action_n <= idx and idx < self.primitive_action_n +  self.skill_n:
             return self.skills[idx-self.primitive_action_n]
         else:
@@ -228,13 +229,8 @@ class ActionSkillSpace(gym.spaces.Discrete):
 class SkillWrapper(gym.Wrapper):
     """
     :param env: (gym.core.Env) gym env with discrete action space
-    :param skills: (list) should be either the format(e.g 3 skills)
-        format 1: 
+    :param skills: (list) should be the following format(e.g 3 skills)
         [[0,0,0],[1,1,1],[0,1,2,2]]
-
-        format 2: 
-        [[[0],[0],[0]],[[1],[1],[1]],[[0],[1],[2],[2]]]
-    
     :param default_sample_type: (str) restrict the sample method's return
         value should be "all", "primitive", "skill",
         e.g if "primitive" is specified then the method "sample" only return primitive action(do not sample skills)
@@ -244,19 +240,7 @@ class SkillWrapper(gym.Wrapper):
         self.action_space=ActionSkillSpace(env.action_space, skills, default_sample_type)
         self.prev_wrapper = env
         self.primitive_action_n = env.action_space.n
-
-        # convert to skill to format 2
-        if len(np.shape(skills))==3 and np.shape(skills)[-1]==1:
-            self.skills = skills
-        elif len(np.shape(skills))>0:
-            # self.skills = np.reshape(skills,(np.shape[],3,1)).tolist()
-            self.skills=[]
-            for skill in skills:
-                new_skill=[]
-                for act in skill:
-                    assert isinstance(act, int)
-                    new_skill.append([act])
-                self.skills.append(new_skill)
+        self.skills = skills
         #else skills is empty
     
              
@@ -273,24 +257,71 @@ class SkillWrapper(gym.Wrapper):
             observation, reward, done, info = self.prev_wrapper.step(action)
         return observation, reward, done, info
 
-    def get_skills(self, format_=1):
+    @property
+    def get_skills(self):
         """
         get the current skills with format 1. or format 2.
-        :param: (int) 1 or 2
         """
-        if format_==1:
-            try:
-                self.skills_1[:]
-            except AttributeError:
-                
-                self.skills_1 = []
-                for skill in self.skills:
-                    new_skill = []
-                    for act in skill:
-                        new_skill.append(act)
-                    self.skills_1.append(new_skill)
-            
-        elif format_==2:
-            return self.skills[:]
-        else:
-            raise ValueError("format_ shoule be either 1 or 2")
+        return self.skills[:]
+        
+
+
+
+
+
+
+
+class ActionRemapSpace(gym.spaces.Discrete):
+    def __init__(self, discrete_space, action_table):
+        assert isinstance(action_table, dict)
+        assert len(action_table.keys())>0
+        super(ActionRemapSpace, self).__init__(len(action_table.keys()))
+        self.action_table = action_table
+        
+
+
+ALIEN_TABLE={0:0,
+            1:1,
+            2:2,
+            3:3,
+            4:4,
+            5:5}
+predefine_table={"alien":ALIEN_TABLE}
+
+class ActionRemapWrapper(gym.Wrapper):
+    """
+    :param env: (gym.core.Env) gym env with discrete action space
+    :table_name: (str) the name of the predefined table (ex: alien)
+    :action_table: (dict) the one-to-one mapping action table
+    NOTE: if the prefix of env-id (ex: Alien-ram-v4 contains the prefix "alien") is in predifined table
+    then the default predfined action_table is used
+    The priproity is : action_table > table_name > env
+    """
+    def __init__(self, env, table_name=None, action_table=None):
+        
+        super(ActionRemapWrapper, self).__init__(env)
+
+
+        game_name = env.unwrapped.spec.id
+        game_name = game_name.split("-")[0]
+
+        if action_table is None:
+            if table_name is not None:
+                if table_name.lower() in predefine_table.keys():
+                    action_table = predefine_table[table_name.lower()]
+                else:
+                    raise NotImplementedError("The table '{}' is not predefined, have to define action_table manually".format(table_name))
+            elif game_name.lower() in predefine_table.keys():
+                action_table = predefine_table[game_name.lower()]
+
+        assert isinstance(action_table, dict)
+        assert len(action_table.keys())>0
+        self.action_table = action_table
+        self.action_space = ActionRemapSpace(env.action_space, action_table)
+    
+    def step(self, action):
+        return self.env.step(self.action_table[action])
+        
+
+
+
