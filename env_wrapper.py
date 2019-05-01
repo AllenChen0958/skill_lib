@@ -289,6 +289,9 @@ ALIEN_TABLE={0:0,
 predefine_table={"alien":ALIEN_TABLE}
 
 class ActionRemapWrapper(gym.Wrapper):
+    #TODO
+    # 1. add array input version
+    # 2. auto fill in dict number
     """
     :param env: (gym.core.Env) gym env with discrete action space
     :table_name: (str) the name of the predefined table (ex: alien)
@@ -316,6 +319,9 @@ class ActionRemapWrapper(gym.Wrapper):
 
         assert isinstance(action_table, dict)
         assert len(action_table.keys())>0
+        # for i in range(1,len(action_table.keys())+1):
+        #     if i not in action_table.keys():
+        #         raise ValueError("action_table should be continuous")
         self.action_table = action_table
         self.action_space = ActionRemapSpace(env.action_space, action_table)
     
