@@ -2,6 +2,28 @@
 
 
 ## Example
+
+### mamager
+```python
+# demo code for AtariPolicyManager in manager.py
+from env_wrapper import SkillWrapper
+import gym
+from stable_baselines.common.policies import MlpPolicy
+from stable_baselines.common.vec_env import DummyVecEnv
+from stable_baselines import PPO2
+...
+# (deprecated)env = gym.make("Alien-ram-v0")
+# [new feature]the new AtariPolicyManager support multiprocess of PPO1, PPO2, A2C...etc (NOT INCLUDE TRPO)
+# [new feature] num_cpu decide how many parallel processs 
+# [new feature] the add_info argumrnt of get_rewards will log to the log.txt
+env_creator = lambda:ActionRemapWrapper(gym.make(ENV))
+atari_manager = AtariPolicyManager(env_creator=env_creator, model=PPO2, policy=MlpPolicy, save_path = "/path/to/store/location", verbose=1, num_cpu=15)
+...
+skills= [[2,2,2,2],[3,3,3,3],[4,4,4],[5,5,5]]
+episode_ave_reward, action_ave_reward = atari_manager.get_rewards(skills, add_info={"example":"value"})
+
+```
+
 ### env_wrapper.py
 #### SkillWrapper
 ```python
@@ -50,26 +72,4 @@ TABLE={0:0,
 env = gym.make("Alien-ram-v0")
 env = ActionRemapWrapper(env, action_table=TABLE)
 ...
-```
-
-
-### mamager
-```python
-# demo code for AtariPolicyManager in manager.py
-from env_wrapper import SkillWrapper
-import gym
-from stable_baselines.common.policies import MlpPolicy
-from stable_baselines.common.vec_env import DummyVecEnv
-from stable_baselines import PPO2
-...
-# (deprecated)env = gym.make("Alien-ram-v0")
-# [new feature]the new AtariPolicyManager support multiprocess of PPO1, PPO2, A2C...etc (NOT INCLUDE TRPO)
-# [new feature] num_cpu decide how many parallel processs 
-# [new feature] the add_info argumrnt of get_rewards will log to the log.txt
-env_creator = lambda:ActionRemapWrapper(gym.make(ENV))
-atari_manager = AtariPolicyManager(env_creator=env_creator, model=PPO2, policy=MlpPolicy, save_path = "/path/to/store/location", verbose=1, num_cpu=15)
-...
-skills= [[2,2,2,2],[3,3,3,3],[4,4,4],[5,5,5]]
-episode_ave_reward, action_ave_reward = atari_manager.get_rewards(skills, add_info={"example":"value"})
-
 ```
