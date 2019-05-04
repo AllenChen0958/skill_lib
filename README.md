@@ -69,6 +69,8 @@ TABLE={0:0,
        3:3,
        4:4,
        5:5}
+#or
+TABLE = [0,1,2,3,4,5]
 env = gym.make("Alien-ram-v0")
 env = ActionRemapWrapper(env, action_table=TABLE)
 ...
