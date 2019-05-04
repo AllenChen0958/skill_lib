@@ -257,6 +257,9 @@ class SkillWrapper(gym.Wrapper):
             observation, reward, done, info = self.prev_wrapper.step(action)
         return observation, reward, done, info
 
+    # def reset(self):
+    #    return super.reset()
+
     @property
     def get_skills(self):
         """
@@ -286,11 +289,12 @@ ALIEN_TABLE={0:0,
             3:3,
             4:4,
             5:5}
+# ALIEN_TABLE=[0,1,2,3,4,5,10,13]
 predefine_table={"alien":ALIEN_TABLE}
 
 class ActionRemapWrapper(gym.Wrapper):
     #TODO
-    # 1. add array input version
+    # 1. add array input version OK
     # 2. auto fill in dict number
     """
     :param env: (gym.core.Env) gym env with discrete action space
@@ -314,20 +318,37 @@ class ActionRemapWrapper(gym.Wrapper):
                     action_table = predefine_table[table_name.lower()]
                 else:
                     raise NotImplementedError("The table '{}' is not predefined, have to define action_table manually".format(table_name))
+                    # print("[Warning] ActionRemapWrapper does not remap any action, use original action")
+                    # table = {}
+                    # for i in range(len(env.action_space.n)):
+                    #     table.update({i:action_table[i]})
+                    # self.action_table = table
+                    # self.action_space = ActionRemapSpace(env.action_space, self.action_table)
             elif game_name.lower() in predefine_table.keys():
                 action_table = predefine_table[game_name.lower()]
 
-        assert isinstance(action_table, dict)
-        assert len(action_table.keys())>0
-        # for i in range(1,len(action_table.keys())+1):
-        #     if i not in action_table.keys():
-        #         raise ValueError("action_table should be continuous")
-        self.action_table = action_table
-        self.action_space = ActionRemapSpace(env.action_space, action_table)
-    
+        if (isinstance(action_table, dict)):
+        
+            assert len(action_table.keys())>0
+            # for i in range(1,len(action_table.keys())+1):
+            #     if i not in action_table.keys():
+            #         raise ValueError("action_table should be continuous")
+            self.action_table = action_table
+            self.action_space = ActionRemapSpace(env.action_space, self.action_table)
+        elif (isinstance(action_table, list)):
+            assert len(action_table)>0
+            table = {}
+            for i in range(len(action_table)):
+                table.update({i:action_table[i]})
+            self.action_table = table
+            self.action_space = ActionRemapSpace(env.action_space, self.action_table)
+        else:
+            raise TypeError("action table type should be either dict or list")
     def step(self, action):
         return self.env.step(self.action_table[action])
         
 
-
+    # def reset(self):
+    #    return super.reset()
+       
 

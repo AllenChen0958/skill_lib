@@ -1,12 +1,13 @@
 import gym
 import time
 from env_wrapper import SkillWrapper
-from collections import deque, OrderedDict
+from collections import deque, OrderedDict, Counter
 import os
 import datetime
 import yaml
 import shutil
-from stable_baselines.common.vec_env import DummyVecEnv
+from stable_baselines.common.vec_env import DummyVecEnv, VecVideoRecorder, SubprocVecEnv
+from stable_baselines.common import set_global_seeds
 import numpy as np
 import glob
 import time
@@ -23,23 +24,30 @@ class PolicyManager(object):
 
 
 class AtariPolicyManager(object):
-    def __init__(self, env, model, policy, save_path, preserve_model=10, verbose=0):
+    def __init__(self, env_creator, model, policy, save_path, preserve_model=10, num_cpu=20, pretrain=False, log_action_skill=True, verbose=0):
         """
-        :param env: (gym.core.Env) gym env with discrete action space
+        :(deprecate)param env: (gym.core.Env) gym env with discrete action space
+        :env_creator: (lambda function) environment constructor to create an env with type (gym.core.Env )
         :param model: any model in stable_baselines e.g PPO2, TRPO...
         :param policy: (ActorCriticPolicy) The policy model to use (MlpPolicy, CnnPolicy, CnnLstmPolicy, ...)
         :param save_path: (str) path to store model and log
-        :param preserve_model: (int) how much history model will be preserved 
+        :param preserve_model: (int) how much history model will be preserved
+        :param num cpu: (int) train on how many process
+        :param pretrain: (bool) if the model passed in are pretrained
+        :param log_action_skill(bool) wheather to count frequency of actions
         :param verbose: (int) 0,1 wheather or not to print the training process
         """
         # super(AtariPolicyManager, self).__init__()
-        self.env = env
+        # self.env=env
+        self.env_creator = env_creator
         self.model = model
         self.policy = policy
         self.preserve_model = preserve_model
         self.verbose = verbose
         self._save_model_name=deque()
         self._serial_num = 1
+        self.num_cpu = num_cpu
+        self.reset_num_timesteps = not pretrain
         if save_path is None:
             self.save_path = None
         elif os.path.exists(save_path):
@@ -64,8 +72,140 @@ class AtariPolicyManager(object):
         else:
             self.save_path = save_path
             os.makedirs(save_path)
-    def get_rewards(self, skills=[], train_total_timesteps=100000, eval_times=100, eval_max_steps=1000, model_save_name=None, log_action_skill=True):
-    # def get_rewards(self, skills=[], train_total_timesteps=10, eval_times=10, eval_max_steps=10, model_save_name=None, log_action_skill=True):
+        self.log_action_skill = log_action_skill
+        
+    def make_env(self, env_creator, rank, skills=[], action_table=None,seed=0):
+        """
+        Utility function for multiprocessed env.
+        
+        :param env_id: (str) the environment ID
+        :param num_env: (int) the number of environment you wish to have in subprocesses
+        :param seed: (int) the inital seed for RNG
+        :param rank: (int) index of the subprocess
+        """
+        def _init():
+            env = env_creator()
+            env = SkillWrapper(env, skills=skills)
+            env.seed(seed + rank)
+            return env
+        set_global_seeds(seed)
+        return _init
+    def evaluate(self, env, model, eval_times, eval_max_steps, render=False):
+        """
+        Evaluate a RL agent
+        :param model: (BaseRLModel object) the RL Agent
+        :param num_steps: (int) number of timesteps to evaluate it
+        :return: info
+        """
+
+        # evaluate with multiprocess env
+        if self.num_cpu>1:
+            episode_rewards = [[] for _ in range(env.num_envs)]
+            ep_rew = [0.0 for _ in range(env.num_envs)]
+
+            action_statistic = OrderedDict()
+            for i in range(env.action_space.n):
+                    action_statistic[str(env.action_space[i])]=0
+            # print(action_statistic)
+            act_log = [[]for _ in range(env.num_envs)]
+
+            obs = env.reset()
+            # for i in range(num_steps):
+            ep_count = 0
+            total_actions_count=0
+            print("start to eval agent...")
+            while True:
+                # _states are only useful when using LSTM policies
+                actions, _states = model.predict(obs)
+                # here, action, rewards and dones are arrays
+                # because we are using vectorized env
+                obs, rewards, dones, info = env.step(actions)
+
+                # Stats
+                for i in range(env.num_envs):
+                    # episode_rewards[i][-1] += rewards[i]
+                    ep_rew [i] = ep_rew[i] + rewards[i]
+                    act_log[i].append(actions[i])
+                    if render:
+                        env.render()
+                        time.sleep(0.05)
+                    if dones[i]:
+                        # episode_rewards[i].append(0.0)
+                        episode_rewards[i].append(ep_rew[i])
+                        
+                        act_count = Counter(np.asarray(act_log[i]).flatten())
+                        for key in act_count:
+                            action_statistic[str(env.action_space[key])] +=  act_count[key]
+                            total_actions_count += act_count[key]
+                        ep_rew[i] = 0
+                        act_log[i] = []
+                        ep_count = ep_count + 1
+                if ep_count >= eval_times:
+                    break
+            print("Finish eval agent")
+            print("Elapsed: {} sec".format(round(time.time()-self.strat_time, 3)))
+
+            # mean_rewards =  [0.0 for _ in range(env.num_envs)]
+            total_reward = []
+            # n_episodes = 0
+            for i in range(env.num_envs):
+                total_reward.extend(episode_rewards[i])
+                # mean_rewards[i] = np.mean(episode_rewards[i])     
+                # n_episodes += len(episode_rewards[i])   
+
+            # Compute mean reward
+            # mean_reward = round(np.mean(mean_rewards), 1)
+            # print("Mean reward:", mean_reward, "Num episodes:", n_episodes)
+            print(total_reward)
+            info = OrderedDict()
+            info["ave_score"] = round(np.mean(total_reward), 1)
+            info["ave_score_std"] = round(np.std(np.array(total_reward)),3)
+            info["ave_action_reward"] = sum(total_reward)/total_actions_count
+            if self.log_action_skill:
+                info.update(action_statistic)
+        else:
+            # evaluate with single process env
+            info = OrderedDict()
+            if self.log_action_skill:
+                action_statistic = OrderedDict()
+                for i in range(env.action_space.n):
+                    action_statistic[str(env.action_space[i])]=0
+            ep_reward = []
+            ep_ave_reward = []
+            print("start to eval agent...")
+            for i in range(eval_times):
+                obs = env.reset()
+                total_reward = []
+                for i in range(eval_max_steps):
+                    action, _states = model.predict(obs)
+                    obs, rewards, dones, info_ = env.step(action)
+                    total_reward.append(rewards[0])
+
+                    if self.log_action_skill is True:
+                        action_statistic[str(env.action_space[action[0]])] = action_statistic[str(env.action_space[action[0]])] + 1
+
+                    if bool(dones[0]) is True:
+                        break
+                
+                ep_reward.append(sum(total_reward))
+                ep_ave_reward.append(sum(total_reward)/len(total_reward))
+            
+            
+            print("Finish eval agent")
+            print("Elapsed: {} sec".format(round(time.time()-self.strat_time, 3)))
+            ave_score = sum(ep_reward)/len(ep_reward)
+            ave_action_reward = sum(ep_ave_reward)/len(ep_ave_reward)
+            ave_score_std = round(np.std(np.array(ep_reward)),3)
+
+            # info.update({"ave_score":ave_score, "ave_score_std":ave_score_std, "ave_reward":ave_reward})
+            info["ave_score"] = ave_score
+            info["ave_score_std"] = ave_score_std
+            info["ave_action_reward"] = ave_action_reward
+            if self.log_action_skill:
+                info.update(action_statistic)
+        return info
+    def get_rewards(self, skills=[], train_total_timesteps=5000000, eval_times=100, eval_max_steps=10000, model_save_name=None, add_info={}):
+    # def get_rewards(self, skills=[], train_total_timesteps=10, eval_times=10, eval_max_steps=10, model_save_name=None, add_info={}):
 
         """
         
@@ -76,71 +216,35 @@ class AtariPolicyManager(object):
         e.g eval_times=100, evalulate the policy by averageing the reward of 100 episode
         :param eval_max_steps: (int)maximum timesteps per episode when evaluate
         :param model_save_name: (str)specify the name of saved model (should not repeat)
-        :param log_action_skill: ()
+        :param add_info: (dict) other information to log in log.txt
         """
 
-        env = SkillWrapper(self.env, skills=skills)
-        env = DummyVecEnv([lambda: env])
+        # env = SkillWrapper(self.env, skills=skills)
+        if self.num_cpu>1:
+            env = SubprocVecEnv([self.make_env(self.env_creator, i, skills) for i in range(self.num_cpu)])
+        else:
+            env = DummyVecEnv([lambda: self.env_creator()])
         model = self.model(self.policy, env, verbose=self.verbose)
         
-        strat_time = time.time()
+        self.strat_time = time.time()
         print("start to train agent...")
-        model.learn(total_timesteps=train_total_timesteps)
+        model.learn(total_timesteps=train_total_timesteps, reset_num_timesteps=self.reset_num_timesteps)
         print("Finish train agent")
 
         if self.save_path is not None:
             if self.preserve_model>0:
                 self.save_model(model, model_save_name, skills=skills)
         
-        #TODO evaluate
-        #eval model
-        info = OrderedDict()
-        if log_action_skill:
-            action_statistic = OrderedDict()
-            for i in range(env.action_space.n):
-                action_statistic[str(env.action_space[i])]=0
-
-
-        ep_reward = []
-        ep_ave_reward = []
-        print("start to eval agent...")
-        for i in range(eval_times):
-            obs = env.reset()
-            total_reward = []
-            for i in range(eval_max_steps):
-                action, _states = model.predict(obs)
-                obs, rewards, dones, info_ = env.step(action)
-                total_reward.append(rewards[0])
-
-                if log_action_skill is True:
-                    action_statistic[str(env.action_space[action[0]])] = action_statistic[str(env.action_space[action[0]])] + 1
-
-                if bool(dones[0]) is True:
-                    break
-            
-            ep_reward.append(sum(total_reward))
-            ep_ave_reward.append(sum(total_reward)/len(total_reward))
-        
-        
-        print("Finish eval agent")
-        print("Elapsed: {} sec".format(round(time.time()-strat_time, 3)))
-        ave_score = sum(ep_reward)/len(ep_reward)
-        ave_action_reward = sum(ep_ave_reward)/len(ep_ave_reward)
-        ave_score_std = round(np.std(np.array(ep_reward)),3)
-
-        # info.update({"ave_score":ave_score, "ave_score_std":ave_score_std, "ave_reward":ave_reward})
-        info["ave_score"] = ave_score
-        info["ave_score_std"] = ave_score_std
-        info["ave_action_reward"] = ave_action_reward
-        if log_action_skill:
-            info.update(action_statistic)
+        # evaluate
+        info = self.evaluate(env, model, eval_times, eval_max_steps)
         env.close()    
         
         #log result
+        info.update(add_info)
         self.log(info)
 
         self._serial_num = self._serial_num + 1
-        return ave_score, ave_action_reward
+        return info["ave_score"], info["ave_action_reward"]
     
     def save_model(self, model, name=None, **kwargs):
         if name is None:
