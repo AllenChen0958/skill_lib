@@ -11,6 +11,7 @@ import gym
 from stable_baselines.common.policies import MlpPolicy
 from stable_baselines.common.vec_env import DummyVecEnv
 from stable_baselines import PPO2
+ENV = "Alien-ramDeterministic-v4"
 ...
 # (deprecated)env = gym.make("Alien-ram-v0")
 # [new feature]the new AtariPolicyManager support multiprocess of PPO1, PPO2, A2C...etc (NOT INCLUDE TRPO)
