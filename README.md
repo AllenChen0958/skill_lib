@@ -11,6 +11,8 @@ import gym
 from stable_baselines.common.policies import MlpPolicy
 from stable_baselines.common.vec_env import DummyVecEnv
 from stable_baselines import PPO2
+from manager import AtariPolicyManager
+from env_wrapper import ActionRemapWrapper
 ENV = "Alien-ramDeterministic-v4"
 ...
 # (deprecated)env = gym.make("Alien-ram-v0")
